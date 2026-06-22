@@ -952,33 +952,138 @@ function drawGardenHome() {
   gardenPhase += 0.012;
 }
 
-// ===== 音频引擎（HTML5 Audio 播放网易云音乐）=====
-var audioEl = null;
+// ===== 音频引擎（Web Audio API 生成疗愈音调，零网络依赖）=====
+var audioCtx = null;
+var toneNodes = []; // active oscillator chain
+var toneGain = null;
+var tonePlaying = false;
 
-function ensureAudio() {
-  if (!audioEl) {
-    audioEl = new Audio();
-    audioEl.preload = 'auto';
-    audioEl.addEventListener('timeupdate', function() {
-      if (audioEl.duration && isFinite(audioEl.duration)) {
-        var pct = (audioEl.currentTime / audioEl.duration) * 100;
-        // 进度条覆盖在设计稿 16%~84% 区间（宽 68%）
-        document.getElementById('progress-fill').style.width = (pct / 100 * 68) + '%';
-        document.getElementById('progress-cur').textContent = formatTime(audioEl.currentTime);
-        document.getElementById('progress-total').textContent = formatTime(audioEl.duration);
-      }
-      state.progressSec = audioEl.currentTime || 0;
-    });
-    audioEl.addEventListener('ended', function() { nextSong(); });
-    audioEl.addEventListener('error', function() {
-      // 歌曲加载失败，尝试下一首
-      var list = songLibrary[state.currentMode] || songLibrary.good;
-      var song = list[state.currentSongIdx % list.length];
-      showNotification('⚠️ ' + (song.name || '歌曲') + ' 加载失败，尝试下一首');
-      nextSong();
-    });
+function initAudioCtx() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    toneGain = audioCtx.createGain();
+    toneGain.connect(audioCtx.destination);
+    toneGain.gain.value = 0;
   }
-  return audioEl;
+  // resume if suspended (autoplay policy)
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+
+function stopTones() {
+  toneNodes.forEach(function(n) {
+    try { n.stop(); } catch(e) {}
+  });
+  toneNodes = [];
+  tonePlaying = false;
+  if (toneGain) toneGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.08);
+  var icon = document.getElementById('ms-play-icon');
+  if (icon) icon.classList.add('show');
+}
+
+function playTones(mode) {
+  stopTones();
+  initAudioCtx();
+  var ctx = audioCtx;
+  var now = ctx.currentTime;
+
+  var cfg = {
+    good:   { base: 174, beats: 8,  type: 'sine',    vol: 0.12, desc: 'Solfeggio 174Hz 放松' },
+    high:   { base: 285, beats: 10, type: 'triangle', vol: 0.10, desc: 'Solfeggio 285Hz 专注' },
+    low:    { base: 396, beats: 6,  type: 'sine',     vol: 0.11, desc: 'Solfeggio 396Hz 治愈' },
+    crisis: { base: 528, beats: 12, type: 'sine',     vol: 0.13, desc: 'Solfeggio 528Hz 活力' },
+  };
+  var c = cfg[mode] || cfg.good;
+
+  // Base drone (left)
+  var osc = ctx.createOscillator();
+  osc.type = c.type;
+  osc.frequency.value = c.base;
+  var g = ctx.createGain();
+  g.gain.value = 0;
+  g.gain.setTargetAtTime(c.vol * 0.6, now + 0.1, 1.5);
+  osc.connect(g);
+  g.connect(toneGain);
+  osc.start(now);
+  toneNodes.push(osc);
+
+  // Beat frequency (right ear effect) - slightly detuned
+  var osc2 = ctx.createOscillator();
+  osc2.type = c.type;
+  osc2.frequency.value = c.base + c.beats;
+  var g2 = ctx.createGain();
+  g2.gain.value = 0;
+  g2.gain.setTargetAtTime(c.vol * 0.4, now + 0.2, 2.0);
+  osc2.connect(g2);
+  g2.connect(toneGain);
+  osc2.start(now);
+  toneNodes.push(osc2);
+
+  // Soft harmonic (1 octave up, quiet)
+  var osc3 = ctx.createOscillator();
+  osc3.type = 'sine';
+  osc3.frequency.value = c.base * 2;
+  var g3 = ctx.createGain();
+  g3.gain.value = 0;
+  g3.gain.setTargetAtTime(c.vol * 0.15, now + 0.8, 3.0);
+  osc3.connect(g3);
+  g3.connect(toneGain);
+  osc3.start(now);
+  toneNodes.push(osc3);
+
+  // Fade in master
+  toneGain.gain.setTargetAtTime(1.0, now + 0.05, 1.2);
+  tonePlaying = true;
+  state._songName = c.desc;
+  state._songArtist = '疗愈音调';
+
+  // Update overlay
+  var n = document.getElementById('ms-song-ov-name');
+  var a = document.getElementById('ms-song-ov-artist');
+  if (n) n.textContent = c.desc;
+  if (a) a.textContent = 'Solfeggio 频率';
+
+  var icon = document.getElementById('ms-play-icon');
+  if (icon) icon.classList.remove('show');
+
+  // Simulate progress (fake 5-min track)
+  state._toneStart = now;
+  startFakeProgress();
+}
+
+var fakePBar = null;
+function startFakeProgress() {
+  if (fakePBar) clearInterval(fakePBar);
+  var start = Date.now();
+  var duration = 300; // 5 minutes
+  fakePBar = setInterval(function() {
+    var elapsed = (Date.now() - start) / 1000;
+    var pct = Math.min(100, (elapsed / duration) * 100);
+    document.getElementById('progress-fill').style.width = (pct / 100 * 68) + '%';
+    document.getElementById('progress-cur').textContent = formatTime(elapsed);
+    document.getElementById('progress-total').textContent = formatTime(duration);
+    if (elapsed >= duration) {
+      clearInterval(fakePBar);
+      fakePBar = null;
+      // Auto-next after 5 min
+      setTimeout(function(){ if (tonePlaying) nextSong(); }, 500);
+    }
+  }, 1000);
+}
+
+function loadSong() {
+  var list = songLibrary[state.currentMode] || songLibrary.good;
+  var song = list[state.currentSongIdx % list.length];
+  state._songName = song.name;
+  state._songArtist = song.artist;
+  var n = document.getElementById('ms-song-ov-name');
+  var a = document.getElementById('ms-song-ov-artist');
+  if (n) n.textContent = song.name;
+  if (a) a.textContent = song.artist;
+  document.getElementById('progress-fill').style.width = '0%';
+  document.getElementById('progress-cur').textContent = '0:00';
+  document.getElementById('progress-total').textContent = '5:00';
+  state.progressSec = 0;
 }
 
 function formatTime(sec) {
@@ -991,41 +1096,30 @@ function formatTime(sec) {
 function loadSong() {
   var list = songLibrary[state.currentMode] || songLibrary.good;
   var song = list[state.currentSongIdx % list.length];
-  document.getElementById('music-title').textContent = song.name;
-  document.getElementById('music-artist').textContent = song.artist;
-  // 同步歌曲覆盖层
+  state._songName = song.name;
+  state._songArtist = song.artist;
   var n = document.getElementById('ms-song-ov-name');
   var a = document.getElementById('ms-song-ov-artist');
   if (n) n.textContent = song.name;
   if (a) a.textContent = song.artist;
   document.getElementById('progress-fill').style.width = '0%';
   document.getElementById('progress-cur').textContent = '0:00';
-  document.getElementById('progress-total').textContent = '--:--';
+  document.getElementById('progress-total').textContent = '5:00';
   state.progressSec = 0;
-  state._songName = song.name;
-  state._songArtist = song.artist;
-
-  var a = ensureAudio();
-  a.src = getSongUrl(song.id);
-  a.load();
 }
 
 function setPlayState(playing) {
   state.isPlaying = playing;
   var icon = document.getElementById('ms-play-icon');
-  if (icon) icon.classList.toggle('show', !playing); // 暂停时显示▶提示
+  if (icon) icon.classList.toggle('show', !playing);
 }
 
 function togglePlay() {
-  var a = ensureAudio();
   if (state.isPlaying) {
-    a.pause();
+    stopTones();
     setPlayState(false);
   } else {
-    var list = songLibrary[state.currentMode] || songLibrary.good;
-    var song = list[state.currentSongIdx % list.length];
-    if (!a.src || a.src.indexOf('id=' + song.id) === -1) a.src = getSongUrl(song.id);
-    a.play().catch(function() { showNotification('⚠️ 播放失败，请重试'); });
+    playTones(state.currentMode);
     setPlayState(true);
   }
 }
@@ -1044,10 +1138,9 @@ function nextSong() {
   if (a) a.textContent = song.artist;
   state._songName = song.name;
   state._songArtist = song.artist;
-  var ael = ensureAudio();
-  ael.src = getSongUrl(song.id);
-  ael.load();
-  if (state.isPlaying) { ael.play().catch(function(){}); }
+  themeIdx = (themeIdx + 1) % 4;
+  applyDesignBg();
+  if (state.isPlaying) { stopTones(); playTones(state.currentMode); setPlayState(true); }
 }
 function prevSong() {
   state.currentSongIdx--;
@@ -1062,18 +1155,29 @@ function prevSong() {
   if (a2) a2.textContent = song.artist;
   state._songName = song.name;
   state._songArtist = song.artist;
-  var a = ensureAudio();
-  a.src = getSongUrl(song.id);
-  a.load();
-  if (state.isPlaying) { a.play().catch(function(){}); }
+  if (state.isPlaying) { stopTones(); playTones(state.currentMode); setPlayState(true); }
 }
 
 // 点击进度条热区跳转
 function seekByClick(e) {
-  if (!audioEl || !audioEl.duration) return;
+  // 点击进度条跳转：音调模式下重新触发进度计算
   var rect = e.currentTarget.getBoundingClientRect();
   var pct = (e.clientX - rect.left) / rect.width;
-  audioEl.currentTime = pct * audioEl.duration;
+  // 重置假进度
+  if (fakePBar) clearInterval(fakePBar);
+  var duration = 300; // 5 min
+  var target = pct * duration;
+  var startAt = Date.now() - target * 1000;
+  fakePBar = setInterval(function() {
+    var elapsed = (Date.now() - startAt) / 1000;
+    if (elapsed >= duration) { clearInterval(fakePBar); fakePBar=null; }
+    var ep = Math.min(100, (elapsed/duration)*100);
+    document.getElementById('progress-fill').style.width = (ep/100*68)+'%';
+    document.getElementById('progress-cur').textContent = formatTime(Math.max(0,elapsed));
+    document.getElementById('progress-total').textContent = formatTime(duration);
+  }, 1000);
+  // 如果正在播放，重新触发音调
+  if (state.isPlaying) { stopTones(); playTones(state.currentMode); setPlayState(true); }
 }
 
 // 点击底部情绪标签切换设计稿——现在用7主题轮换
@@ -1111,9 +1215,8 @@ function applyDesignBg() {
 }
 
 function stopAllTones() {
-  if (audioEl) { audioEl.pause(); audioEl.src = ''; }
+  stopTones();
   state.isPlaying = false;
-  document.getElementById('play-btn').textContent = '▶';
 }
 
 // ===== 时钟 =====
@@ -1490,11 +1593,23 @@ function syncQQSongInfo() {
 }
 
 function seekQQProgress(e) {
-  if (!audioEl || !audioEl.duration) return;
+  // 使用假进度系统
   var bar = e.currentTarget;
   var rect = bar.getBoundingClientRect();
   var pct = (e.clientX - rect.left) / rect.width;
-  audioEl.currentTime = pct * audioEl.duration;
+  if (fakePBar) clearInterval(fakePBar);
+  var duration = 300;
+  var target = pct * duration;
+  var startAt = Date.now() - target * 1000;
+  fakePBar = setInterval(function() {
+    var elapsed = (Date.now() - startAt) / 1000;
+    if (elapsed >= duration) { clearInterval(fakePBar); fakePBar=null; }
+    var ep = Math.min(100,(elapsed/duration)*100);
+    document.getElementById('qq-progress-fill').style.width = ep+'%';
+    document.getElementById('qq-time-cur').textContent = formatTime(Math.max(0,elapsed));
+    document.getElementById('qq-time-total').textContent = formatTime(duration);
+  }, 1000);
+  if (state.isPlaying) { stopTones(); playTones(state.currentMode); setPlayState(true); }
 }
 
 // ===== QQ音乐可视化（复用4场景系统）=====
@@ -1919,23 +2034,18 @@ function toggleQQBT() {
   }
 }
 
-// 同步音频事件到QQ界面
-(function patchAudioForQQ() {
-  var origEnsure = ensureAudio;
-  // 在 togglePlay / loadSong 之后刷新QQ界面
-  var _origLoad = null;
-  // 用定时器同步进度
-  setInterval(function() {
-    if (!audioEl || !document.getElementById('qq-music-overlay').classList.contains('show')) return;
-    if (audioEl.duration && isFinite(audioEl.duration)) {
-      var pct = (audioEl.currentTime / audioEl.duration) * 100;
-      document.getElementById('qq-progress-fill').style.width = pct + '%';
-      document.getElementById('qq-progress-dot').style.left = pct + '%';
-      document.getElementById('qq-time-cur').textContent = formatTime(audioEl.currentTime);
-      document.getElementById('qq-time-total').textContent = formatTime(audioEl.duration);
-    }
-  }, 500);
-})();
+// 同步进度到 QQ 界面
+setInterval(function() {
+  if (!document.getElementById('qq-music-overlay').classList.contains('show')) return;
+  // 从手表进度条读取当前进度
+  var w = document.getElementById('progress-fill').style.width || '0%';
+  var wp = parseFloat(w);
+  var pct = Math.max(0, Math.min(100, (wp / 68) * 100));
+  document.getElementById('qq-progress-fill').style.width = pct + '%';
+  document.getElementById('qq-progress-dot').style.left = pct + '%';
+  document.getElementById('qq-time-cur').textContent = document.getElementById('progress-cur').textContent;
+  document.getElementById('qq-time-total').textContent = document.getElementById('progress-total').textContent;
+}, 500);
 
 // ===== 初始化 =====
 updateClock();
