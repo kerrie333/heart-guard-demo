@@ -1022,6 +1022,8 @@ function togglePlay() {
 
 function nextSong() {
   state.currentSongIdx++;
+  themeIdx = (themeIdx + 1) % 4; // 轮换到下一个固定主题
+  applyDesignBg();
   var list = songLibrary[state.currentMode] || songLibrary.good;
   var song = list[state.currentSongIdx % list.length];
   document.getElementById('music-title').textContent = song.name;
@@ -1056,22 +1058,38 @@ function seekByClick(e) {
   audioEl.currentTime = pct * audioEl.duration;
 }
 
-// 点击底部情绪标签切换设计稿
-var designModes = ['good','low','high','crisis','crisis']; // 5 tabs → 4 designs
+// 点击底部情绪标签切换设计稿——现在用7主题轮换
 function switchDesign(idx) {
-  var mode = designModes[idx] || 'good';
-  state.currentMode = mode;
-  state.currentSongIdx = 0;
-  updateMoodBar(mode);
-  loadSong();
-  applyDesignBg();
-  if (state.isPlaying) { var a = ensureAudio(); a.play().catch(function(){}); }
+  var themes = ['relax','heal','focus','energy'];
+  // easter egg: if idx=4, pick random easter
+  var slug = idx < 4 ? themes[idx] : easterEggs[Math.floor(Math.random()*easterEggs.length)];
+  themeIdx = themes.indexOf(slug);
+  if (themeIdx < 0) themeIdx = 0;
+
+  var bg = document.getElementById('ms-bg');
+  if (bg) bg.style.backgroundImage = 'url(imgs/theme_' + slug + '.jpg)';
+  // 高亮对应热区
+  document.querySelectorAll('.ms-hot-mood').forEach(function(h,j){
+    h.style.background = (j === idx) ? 'rgba(255,255,255,0.08)' : 'transparent';
+  });
 }
 
+// 设计稿轮换 —— 4固定主题 + 3彩蛋随机
+var themeCycle = ['relax','heal','focus','energy'];
+var themeIdx = 0;
+var easterEggs = ['easter1','easter2','easter3'];
+
 function applyDesignBg() {
-  var map = { good: 'imgs/design1.jpg', high: 'imgs/design5.jpg', low: 'imgs/design6.jpg', crisis: 'imgs/design7.jpg' };
+  var slug = themeCycle[themeIdx % 4];
+  // 20% 概率触发彩蛋
+  if (Math.random() < 0.2) slug = easterEggs[Math.floor(Math.random() * easterEggs.length)];
   var bg = document.getElementById('ms-bg');
-  if (bg) bg.style.backgroundImage = 'url(' + (map[state.currentMode] || map.good) + ')';
+  if (bg) bg.style.backgroundImage = 'url(imgs/theme_' + slug + '.jpg)';
+  // 同步底部情绪标签热区高亮
+  var tabMap = {relax:0, heal:1, focus:2, energy:3};
+  document.querySelectorAll('.ms-hot-mood').forEach(function(h,j){
+    h.style.background = (j === (tabMap[slug]||0)) ? 'rgba(255,255,255,0.08)' : 'transparent';
+  });
 }
 
 function stopAllTones() {
