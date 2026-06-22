@@ -1182,35 +1182,38 @@ function seekByClick(e) {
 
 // 点击底部情绪标签切换设计稿——现在用7主题轮换
 function switchDesign(idx) {
-  var themes = ['relax','heal','focus','energy'];
-  // easter egg: if idx=4, pick random easter
-  var slug = idx < 4 ? themes[idx] : easterEggs[Math.floor(Math.random()*easterEggs.length)];
-  themeIdx = themes.indexOf(slug);
+  // idx: 0=放松(theme1) 1=治愈(theme2) 2=专注(theme3) 3=活力(theme4) 4=随机彩蛋
+  var themes = [1, 2, 3, 4];
+  var tid = idx < 4 ? themes[idx] : easterEggs[Math.floor(Math.random()*easterEggs.length)];
+  themeIdx = themes.indexOf(tid);
   if (themeIdx < 0) themeIdx = 0;
 
   var bg = document.getElementById('ms-bg');
-  if (bg) bg.style.backgroundImage = 'url(imgs/theme_' + slug + '.jpg)';
+  if (bg) bg.style.backgroundImage = 'url(imgs/theme' + tid + '.jpg)';
   // 高亮对应热区
+  var tabMap = {1:0, 2:1, 3:2, 4:3};
   document.querySelectorAll('.ms-hot-mood').forEach(function(h,j){
     h.style.background = (j === idx) ? 'rgba(255,255,255,0.08)' : 'transparent';
   });
 }
 
-// 设计稿轮换 —— 4固定主题 + 3彩蛋随机
-var themeCycle = ['relax','heal','focus','energy'];
+// 设计稿轮换 —— 7张原图直接缩放（无模糊），4固定主题 + 3彩蛋
+// theme1.jpg=放松  theme2.jpg=治愈  theme3.jpg=专注  theme4.jpg=活力
+// theme5.jpg=彩蛋1  theme6.jpg=彩蛋2  theme7.jpg=彩蛋3
+var themeCycle = [1, 2, 3, 4];
 var themeIdx = 0;
-var easterEggs = ['easter1','easter2','easter3'];
+var easterEggs = [5, 6, 7];
 
 function applyDesignBg() {
-  var slug = themeCycle[themeIdx % 4];
+  var idx = themeCycle[themeIdx % 4];
   // 20% 概率触发彩蛋
-  if (Math.random() < 0.2) slug = easterEggs[Math.floor(Math.random() * easterEggs.length)];
+  if (Math.random() < 0.2) idx = easterEggs[Math.floor(Math.random() * easterEggs.length)];
   var bg = document.getElementById('ms-bg');
-  if (bg) bg.style.backgroundImage = 'url(imgs/theme_' + slug + '.jpg)';
+  if (bg) bg.style.backgroundImage = 'url(imgs/theme' + idx + '.jpg)';
   // 同步底部情绪标签热区高亮
-  var tabMap = {relax:0, heal:1, focus:2, energy:3};
+  var tabMap = {1:0, 2:1, 3:2, 4:3};
   document.querySelectorAll('.ms-hot-mood').forEach(function(h,j){
-    h.style.background = (j === (tabMap[slug]||0)) ? 'rgba(255,255,255,0.08)' : 'transparent';
+    h.style.background = (j === (tabMap[idx]||0)) ? 'rgba(255,255,255,0.08)' : 'transparent';
   });
 }
 
