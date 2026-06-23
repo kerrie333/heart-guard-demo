@@ -584,53 +584,223 @@ var state = {
   vizStyle: 'heartscape'
 };
 
-// ===== 歌库 v8.0 —— 每首歌通过名称哈希获得独特音乐DNA =====
-// 模式→BPM→心率对应：
-// good(放松/平和) = 72 BPM，C大调，明亮温暖 → 正常心率 60-80
-// high(专注/焦虑) = 100 BPM，D Dorian，清晰有力量 → 偏高心率 85-110  
-// low(治愈/抑郁) = 58 BPM，A小调，温柔深沉 → 偏低心率 50-65
-// crisis(危机) = 60 BPM，G大调，坚定希望 → 危机干预
+// ===== 歌库 v8.1 —— 接入网易云真实音乐 =====
+// 每首歌带 neteaseId，通过 JSONP 获取真实播放地址
 var songLibrary = {
   good: [
-    { name: '海阔天空', artist: 'Beyond' },
-    { name: '起风了',     artist: '买辣椒也用券' },
-    { name: '晴天',       artist: '周杰伦' },
-    { name: '小幸运',     artist: '田馥甄' },
-    { name: '平凡之路',   artist: '朴树' }
+    { name: '海阔天空',   artist: 'Beyond',     neteaseId: 346089 },
+    { name: '起风了',     artist: '买辣椒也用券', neteaseId: 1330348068 },
+    { name: '晴天',       artist: '周杰伦',     neteaseId: 65766 },
+    { name: '小幸运',     artist: '田馥甄',     neteaseId: 327541673 },
+    { name: '平凡之路',   artist: '朴树',       neteaseId: 139350 }
   ],
   high: [
-    { name: '蓝莲花',           artist: '许巍' },
-    { name: '夜空中最亮的星',   artist: '逃跑计划' },
-    { name: '追梦赤子心',       artist: 'GALA' },
-    { name: '怒放的生命',       artist: '汪峰' },
-    { name: '曾经的你',         artist: '许巍' }
+    { name: '蓝莲花',           artist: '许巍',       neteaseId: 16775 },
+    { name: '夜空中最亮的星',   artist: '逃跑计划',   neteaseId: 25713016 },
+    { name: '追梦赤子心',       artist: 'GALA',      neteaseId: 164835 },
+    { name: '怒放的生命',       artist: '汪峰',       neteaseId: 65767 },
+    { name: '曾经的你',         artist: '许巍',       neteaseId: 16776 }
   ],
   low: [
-    { name: '仓央嘉措情歌',     artist: '前冲' },
-    { name: '南山南',           artist: '马頔' },
-    { name: '安河桥',           artist: '宋冬野' },
-    { name: '七月上',           artist: 'Jam' },
-    { name: '成都',             artist: '赵雷' }
+    { name: '南山南',           artist: '马頔',       neteaseId: 25704156 },
+    { name: '安河桥',           artist: '宋冬野',     neteaseId: 415350 ),
+    { name: '成都',             artist: '赵雷',       neteaseId: 436514312 },
+    { name: '七月上',           artist: 'Jam',        neteaseId: 31445554 },
+    { name: '鲸鱼',             artist: '窦唯',       neteaseId: 186001 }
   ],
   crisis: [
-    { name: '海阔天空',         artist: 'Beyond' },
-    { name: '平凡之路',         artist: '朴树' },
-    { name: '夜空中最亮的星',   artist: '逃跑计划' },
-    { name: '隐形的翅膀',       artist: '张韶涵' },
-    { name: '明天会更好',       artist: '群星' }
+    { name: '海阔天空',         artist: 'Beyond',     neteaseId: 346089 },
+    { name: '平凡之路',         artist: '朴树',       neteaseId: 139350 },
+    { name: '夜空中最亮的星',   artist: '逃跑计划',   neteaseId: 25713016 },
+    { name: '隐形的翅膀',       artist: '张韶涵',     neteaseId: 108580 },
+    { name: '勇敢一点',         artist: '赵雷',       neteaseId: 436514366 }
   ]
 };
 
-// 歌曲名→音乐DNA种子
-function songDNA(name) {
-  var h = 0;
-  for (var i = 0; i < name.length; i++) {
-    h = ((h << 5) - h + name.charCodeAt(i)) | 0;
-  }
-  return Math.abs(h);
+// ===== 网易云音乐播放器 v8.1 =====
+// 用 JSONP 绕过 CORS，获取真实 MP3 地址并播放
+var neAudio = null;        // <audio> 元素
+var neAudioURL = '';    // 当前音频 URL
+var neFetching = false;  // 是否正在获取 URL
+
+// JSONP 回调容器
+var _neCallbacks = {};
+var _neCbId = 0;
+
+function neFetchUrl(songId, callback) {
+  // 用 JSONP 调用网易云 API，绕过 CORS
+  var cbName = '_neCb' + (++_neCbId);
+  _neCallbacks[cbName] = function(json) {
+    delete _neCallbacks[cbName];
+    var url = json && json.data && json.data[0] && json.data[0].url;
+    callback(url || null);
+  };
+  // 构建 JSONP URL
+  var url = 'https://music.163.com/api/song/enhance/player/url?id='
+            + songId + '&ids=%5B' + songId + '%5D&br=320000'
+            + '&callback=' + cbName;
+  var script = document.createElement('script');
+  script.src = url;
+  script.onload = function() { document.body.removeChild(script); };
+  script.onerror = function() {
+    document.body.removeChild(script);
+    callback(null);
+  };
+  document.body.appendChild(script);
 }
 
-// ===== 增强场景可视化系统（4场景 × 2模式）=====
+function ensureAudio() {
+  if (!neAudio) {
+    neAudio = new Audio();
+    neAudio.preload = 'auto';
+    neAudio.addEventListener('timeupdate', onAudioTimeUpdate);
+    neAudio.addEventListener('ended', onAudioEnded);
+    neAudio.addEventListener('error', onAudioError);
+  }
+  return neAudio;
+}
+
+function onAudioTimeUpdate() {
+  if (!neAudio) return;
+  var pct = neAudio.duration ? (neAudio.currentTime / neAudio.duration) * 100 : 0;
+  var fill = document.getElementById('progress-fill');
+  if (fill) fill.style.width = pct + '%';
+  var dot = document.getElementById('prog-dot');
+  if (dot) dot.style.left = pct + '%';
+  var curEl = document.getElementById('prog-cur');
+  if (curEl) curEl.textContent = formatTime(neAudio.currentTime);
+  var totEl = document.getElementById('prog-total');
+  if (totEl && neAudio.duration) totEl.textContent = formatTime(neAudio.duration);
+}
+
+function onAudioEnded() {
+  // 自动下一首
+  setTimeout(function(){ nextSong(); }, 500);
+}
+
+function onAudioError() {
+  console.warn('[HeartGuard] 音频加载失败，尝试下一首');
+  setTimeout(function(){ nextSong(); }, 1000);
+}
+
+// 停止当前播放
+function stopRealMusic() {
+  if (neAudio) {
+    neAudio.pause();
+    neAudio.currentTime = 0;
+  }
+  state.isPlaying = false;
+  setPlayState(false);
+}
+
+// 播放指定歌曲（通过网易云 API 获取真实 MP3）
+function playRealMusic(mode, songIdx) {
+  stopRealMusic();
+  var list = songLibrary[mode] || songLibrary.good;
+  var idx = (songIdx !== undefined ? songIdx : 0) % list.length;
+  var song = list[idx];
+  state.currentSongIdx = idx;
+
+  // 更新 UI 歌曲信息
+  var n = document.getElementById('ms-song-ov-name');
+  var a = document.getElementById('ms-song-ov-artist');
+  if (n) n.textContent = song.name;
+  if (a) a.textContent = song.artist;
+
+  if (!song.neteaseId) {
+    console.warn('[HeartGuard] 歌曲无 neteaseId:', song.name);
+    return;
+  }
+
+  // 获取真实播放地址
+  neFetching = true;
+  setPlayState(true); // 先显示"加载中"
+
+  neFetchUrl(song.neteaseId, function(mp3url) {
+    neFetching = false;
+    if (!mp3url) {
+      console.warn('[HeartGuard] 无法获取播放地址:', song.name);
+      setPlayState(false);
+      // 自动重试下一首
+      setTimeout(function(){ nextSong(); }, 800);
+      return;
+    }
+    var audio = ensureAudio();
+    audio.src = mp3url;
+    audio.load();
+    audio.play().then(function() {
+      state.isPlaying = true;
+      setPlayState(true);
+    }).catch(function(err) {
+      console.warn('[HeartGuard] 播放失败:', err);
+      setPlayState(false);
+    });
+  });
+}
+
+function setPlayState(playing) {
+  state.isPlaying = playing;
+  var btn = document.getElementById('play-btn');
+  if (btn) btn.textContent = playing ? '⏸' : '▶';
+}
+
+function togglePlay() {
+  if (state.isPlaying) {
+    stopRealMusic();
+  } else {
+    playRealMusic(state.currentMode, state.currentSongIdx);
+  }
+}
+
+// ===== 歌曲加载 / 切歌（真实音乐版）=====
+function loadSong() {
+  var list = songLibrary[state.currentMode] || songLibrary.good;
+  var song = list[state.currentSongIdx % list.length];
+  state._songName = song.name;
+  state._songArtist = song.artist;
+  var n = document.getElementById('ms-song-ov-name');
+  var a = document.getElementById('ms-song-ov-artist');
+  if (n) n.textContent = song.name;
+  if (a) a.textContent = song.artist;
+  var fill = document.getElementById('progress-fill');
+  if (fill) fill.style.width = '0%';
+  var dot = document.getElementById('prog-dot');
+  if (dot) dot.style.left = '0%';
+  var curEl = document.getElementById('prog-cur');
+  if (curEl) curEl.textContent = '0:00';
+  state.progressSec = 0;
+}
+
+function nextSong() {
+  state.currentSongIdx++;
+  currentTheme = (currentTheme + 1) % 4;
+  applyDesignBg();
+  loadSong();
+  if (state.isPlaying) {
+    stopRealMusic();
+    playRealMusic(state.currentMode, state.currentSongIdx);
+  }
+}
+
+function prevSong() {
+  state.currentSongIdx--;
+  if (state.currentSongIdx < 0) state.currentSongIdx = 0;
+  currentTheme = (currentTheme + 3) % 4;
+  applyDesignBg();
+  loadSong();
+  if (state.isPlaying) {
+    stopRealMusic();
+    playRealMusic(state.currentMode, state.currentSongIdx);
+  }
+}
+
+function seekByClick(e) {
+  if (!neAudio || !neAudio.duration) return;
+  var rect = e.currentTarget.getBoundingClientRect();
+  var pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+  neAudio.currentTime = pct * neAudio.duration;
+}
+
 // 场景设计基于 11 篇循证研究论文 + 用户提供的场景提示词
 var heartscapePhase = 0;
 var gardenPhase = 0;
@@ -1083,343 +1253,6 @@ function drawGardenHome() {
   gardenPhase += 0.012;
 }
 
-// ===== 音频引擎 v8.0（多轨道合成器：和弦+旋律+脉冲+氛围+混响）=====
-var audioCtx = null, toneGain = null, toneNodes = [], tonePlaying = false;
-var masterVol = null; // 总音量控制
-
-function initAudioCtx() {
-  if (!audioCtx) {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    masterVol = audioCtx.createGain();
-    masterVol.gain.value = 0.35;
-    masterVol.connect(audioCtx.destination);
-    toneGain = audioCtx.createGain();
-    toneGain.gain.value = 0;
-    toneGain.connect(masterVol);
-  }
-  if (audioCtx.state === 'suspended') audioCtx.resume();
-  return audioCtx;
-}
-
-// 音符频率表（动态生成 C1~B7）
-var N = {};
-(function(){
-  var names = ['C','Cs','D','Ds','E','F','Fs','G','Gs','A','As','B'];
-  for (var o = 1; o <= 7; o++) {
-    for (var ni = 0; ni < names.length; ni++) {
-      N[names[ni]+o] = 440 * Math.pow(2, (o-4)+(ni-9)/12);
-    }
-  }
-})();
-
-// 五声音阶 + 和弦进行（每个模式一个独特组合）
-var SCALES = {
-  Cmaj: ['C4','D4','E4','G4','A4','C5','D5','E5','G5'],
-  Ddor: ['D4','E4','F4','A4','B4','D5','E5','G5','A5'],
-  Amin: ['A3','C4','D4','E4','G4','A4','C5','D5','E5'],
-  Gmaj: ['G3','A3','B3','D4','E4','G4','A4','B4','D5']
-};
-var CHORDS = {
-  good:   [['C3','E3','G3','B3'],['F3','A3','C4','E4'],['C3','E3','G3','B3'],['G2','B2','D3','F3']],
-  high:   [['D3','F3','A3','C4'],['G3','B3','D4','F4'],['D3','F3','A3','C4'],['A2','C3','E3','G3']],
-  low:    [['A2','C3','E3','G3'],['F3','A3','C4','E4'],['A2','C3','E3','G3'],['E2','G2','B2','D3']],
-  crisis: [['G2','B2','D3','G3'],['C3','E3','G3','C4'],['G2','B2','D3','G3'],['D3','Fs3','A3','D4']]
-};
-var MODE_CFG = {
-  good:   { scale:'Cmaj', tempo:0.833, bpm:72,  chVol:0.06, mlVol:0.05, puVol:0.03, wave:'sine',    dur:48, bpmLabel:'72 (放松)' },
-  high:   { scale:'Ddor', tempo:0.600, bpm:100, chVol:0.05, mlVol:0.06, puVol:0.04, wave:'triangle', dur:40, bpmLabel:'100 (专注)' },
-  low:    { scale:'Amin', tempo:1.034, bpm:58,  chVol:0.06, mlVol:0.04, puVol:0.02, wave:'sine',    dur:55, bpmLabel:'58 (治愈)' },
-  crisis: { scale:'Gmaj', tempo:1.000, bpm:60,  chVol:0.07, mlVol:0.04, puVol:0.05, wave:'sine',    dur:52, bpmLabel:'60 (希望)' }
-};
-
-// ===== 混响效果（反馈延迟线模拟）=====
-var feedbackDelay = null, feedbackGain = null;
-function ensureReverb(ctx) {
-  if (feedbackDelay) return;
-  feedbackDelay = ctx.createDelay(0.5);
-  feedbackDelay.delayTime.value = 0.25;
-  feedbackGain = ctx.createGain();
-  feedbackGain.gain.value = 0.18;
-  feedbackDelay.connect(feedbackGain);
-  feedbackGain.connect(feedbackDelay);
-  feedbackDelay.connect(masterVol);
-}
-
-// ===== 创建钢琴音色（多分音合成）=====
-function createPianoNote(ctx, freq, startT, dur, vol, pan) {
-  // 基音
-  var osc = ctx.createOscillator(); osc.type = 'sine'; osc.frequency.value = freq;
-  var g = ctx.createGain();
-  g.gain.setValueAtTime(0, startT);
-  g.gain.linearRampToValueAtTime(vol * 0.7, startT + 0.02);
-  g.gain.exponentialRampToValueAtTime(vol * 0.35, startT + dur * 0.5);
-  g.gain.exponentialRampToValueAtTime(0.001, startT + dur);
-  osc.connect(g); g.connect(toneGain);
-  if (pan) { var p = ctx.createStereoPanner(); p.pan.value = pan; g.disconnect(); g.connect(p); p.connect(toneGain); }
-  osc.start(startT); osc.stop(startT + dur + 0.1);
-  toneNodes.push(osc);
-  // 泛音（钢琴特点：八度+五度泛音）
-  for (var h = 0; h < 2; h++) {
-    var hf = freq * (h === 0 ? 2 : 3);
-    var ho = ctx.createOscillator(); ho.type = 'sine'; ho.frequency.value = hf;
-    var hg = ctx.createGain();
-    hg.gain.setValueAtTime(0, startT);
-    hg.gain.linearRampToValueAtTime(vol * 0.08 / (h+1), startT + 0.01);
-    hg.gain.exponentialRampToValueAtTime(0.001, startT + dur * 0.3);
-    ho.connect(hg); hg.connect(toneGain);
-    ho.start(startT); ho.stop(startT + dur * 0.4);
-    toneNodes.push(ho);
-  }
-}
-
-// ===== 乐音播放（单音符，带ADSR）=====
-function playToneNote(ctx, freq, startT, dur, vol, type, pan) {
-  type = type || 'sine';
-  var osc = ctx.createOscillator(); osc.type = type; osc.frequency.value = freq;
-  var g = ctx.createGain();
-  var a = 0.02, d = dur * 0.15, s = vol * 0.6, r = dur * 0.3;
-  g.gain.setValueAtTime(0, startT);
-  g.gain.linearRampToValueAtTime(vol, startT + a);
-  g.gain.linearRampToValueAtTime(s, startT + a + d);
-  g.gain.setValueAtTime(s, startT + dur - r);
-  g.gain.exponentialRampToValueAtTime(0.001, startT + dur);
-  if (pan) {
-    var p = ctx.createStereoPanner(); p.pan.value = pan;
-    osc.connect(g); g.connect(p); p.connect(toneGain);
-  } else {
-    osc.connect(g); g.connect(toneGain);
-  }
-  osc.start(startT); osc.stop(startT + dur + 0.1);
-  toneNodes.push(osc);
-}
-
-// ===== 脉冲节奏（心跳/呼吸感）=====
-function playPulseNote(ctx, freq, startT, dur, vol) {
-  var osc = ctx.createOscillator(); osc.type = 'sine'; osc.frequency.value = freq;
-  var g = ctx.createGain();
-  g.gain.setValueAtTime(0, startT);
-  g.gain.linearRampToValueAtTime(vol, startT + 0.015);
-  g.gain.exponentialRampToValueAtTime(0.001, startT + dur);
-  osc.connect(g); g.connect(toneGain);
-  osc.start(startT); osc.stop(startT + dur + 0.05);
-  toneNodes.push(osc);
-}
-
-// ===== 停止所有声音 =====
-function stopTones() {
-  toneNodes.forEach(function(n) { try { n.stop(); } catch(e) {} });
-  toneNodes = [];
-  tonePlaying = false;
-  if (toneGain && audioCtx) toneGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.06);
-  if (fakePBar) { clearInterval(fakePBar); fakePBar = null; }
-}
-
-// ===== 多轨道音乐生成器 v8.0 =====
-function playTones(mode, songIdx) {
-  stopTones();
-  var ctx = initAudioCtx();
-  ensureReverb(ctx);
-  var t = ctx.currentTime;
-  var cfg = MODE_CFG[mode] || MODE_CFG.good;
-  var scale = SCALES[cfg.scale];
-  var chords = CHORDS[mode] || CHORDS.good;
-  var list = songLibrary[mode] || songLibrary.good;
-  var idx = (songIdx !== undefined ? songIdx : 0) % list.length;
-  var song = list[idx];
-  var dna = songDNA(song.name);
-
-  // ===== 1. 和弦铺底（Pad，持续环境音）=====
-  var chordLen = cfg.tempo * 4; // 每个和弦持续4拍
-  var numChords = Math.floor(cfg.dur / chordLen);
-  var chordGain = ctx.createGain();
-  chordGain.gain.value = 0;
-  chordGain.gain.setTargetAtTime(cfg.chVol, t + 0.3, 2.0);
-  chordGain.connect(toneGain);
-
-  for (var ci = 0; ci < numChords; ci++) {
-    var ch = chords[ci % chords.length];
-    var cStart = t + 1 + ci * chordLen;
-    for (var cj = 0; cj < ch.length; cj++) {
-      playToneNote(ctx, N[ch[cj]], cStart, chordLen - 0.1, cfg.chVol * 0.18, cfg.wave);
-    }
-  }
-
-  // ===== 2. 钢琴旋律（每首歌独特的音符序列）=====
-  var melodyGain = ctx.createGain();
-  melodyGain.gain.value = 0;
-  melodyGain.gain.setTargetAtTime(cfg.mlVol, t + 1.5, 2.5);
-  melodyGain.connect(toneGain);
-
-  // 用DNA种子生成独特的旋律模式
-  var noteCount = 12 + (dna % 5);
-  var melodyNotes = [];
-  for (var mi = 0; mi < noteCount; mi++) {
-    var si = ((dna >> (mi % 14)) + mi * 3 + (dna % 7)) % scale.length;
-    melodyNotes.push(scale[si]);
-  }
-
-  // 播放旋律（钢琴音色，带立体声）
-  var mlStart = t + 2.5;
-  for (var mn = 0; mn < melodyNotes.length; mn++) {
-    var noteT = mlStart + mn * cfg.tempo;
-    var noteD = cfg.tempo * 0.78;
-    var panVal = (mn % 2 === 0) ? -0.3 : 0.3;
-    createPianoNote(ctx, N[melodyNotes[mn]], noteT, noteD, cfg.mlVol, panVal);
-  }
-
-  // ===== 3. 节奏脉冲（心跳/呼吸感）=====
-  var totalBeats = Math.floor((cfg.dur - 2) / cfg.tempo);
-  var rootFreq = N[scale[0]] * 0.5; // 根音低频脉冲
-  for (var bi = 0; bi < totalBeats; bi++) {
-    var beatT = t + 2 + bi * cfg.tempo;
-    var isDownbeat = (bi % 4 === 0);
-    var bVol = isDownbeat ? cfg.puVol : cfg.puVol * 0.35;
-    var bDur = isDownbeat ? 0.28 : 0.12;
-    playPulseNote(ctx, isDownbeat ? rootFreq : rootFreq * 2, beatT, bDur, bVol);
-  }
-
-  // ===== 4. 氛围层（高八度和弦泛音，增加空间感）=====
-  var ambGain = ctx.createGain();
-  ambGain.gain.value = 0;
-  ambGain.gain.setTargetAtTime(cfg.chVol * 0.15, t + 3.0, 4.0);
-  ambGain.connect(toneGain);
-  for (var ai = 0; ai < numChords; ai++) {
-    var ach = chords[ai % chords.length];
-    var aStart = t + 3 + ai * chordLen;
-    for (var aj = 0; aj < ach.length; aj++) {
-      var hiNote = ach[aj].replace(/[0-9]/g, function(d){ return parseInt(d)+2; });
-      playToneNote(ctx, N[hiNote] || N[ach[aj]] * 4, aStart, chordLen * 0.8, cfg.chVol * 0.04, 'sine');
-    }
-  }
-
-  // ===== 5. 混响发送 =====
-  if (feedbackDelay) {
-    var sendGain = ctx.createGain();
-    sendGain.gain.value = 0.25;
-    toneGain.connect(sendGain);
-    sendGain.connect(feedbackDelay);
-  }
-
-  // 总音量淡入
-  toneGain.gain.setTargetAtTime(1.0, t + 0.05, 1.0);
-  tonePlaying = true;
-
-  // 更新UI：歌曲名 + 心率标签
-  var n = document.getElementById('ms-song-ov-name');
-  var a = document.getElementById('ms-song-ov-artist');
-  if (n) n.textContent = song.name;
-  if (a) a.textContent = song.artist + ' · ' + cfg.bpmLabel;
-
-  // 进度条同步
-  startFakeProgress(cfg.dur);
-  state._toneStart = t;
-  state._songName = song.name;
-  state._songArtist = song.artist;
-}
-
-var fakePBar = null;
-function startFakeProgress(dur) {
-  if (fakePBar) clearInterval(fakePBar);
-  dur = dur || 60;
-  var start = Date.now();
-  fakePBar = setInterval(function() {
-    var elapsed = (Date.now() - start) / 1000;
-    var pct = Math.min(100, (elapsed / dur) * 100);
-    var fill = document.getElementById('progress-fill');
-    if (fill) fill.style.width = pct + '%';
-    var dot = document.getElementById('prog-dot');
-    if (dot) dot.style.left = pct + '%';
-    var curEl = document.getElementById('prog-cur');
-    if (curEl) curEl.textContent = formatTime(Math.max(0, elapsed));
-    var totEl = document.getElementById('prog-total');
-    if (totEl) totEl.textContent = formatTime(dur);
-    if (elapsed >= dur) {
-      clearInterval(fakePBar); fakePBar = null;
-      if (tonePlaying) { setTimeout(function(){ nextSong(); }, 300); }
-    }
-  }, 1000);
-}
-
-function loadSong() {
-  var list = songLibrary[state.currentMode] || songLibrary.good;
-  var song = list[state.currentSongIdx % list.length];
-  state._songName = song.name;
-  state._songArtist = song.artist;
-  var cfg = MODE_CFG[state.currentMode] || MODE_CFG.good;
-  var n = document.getElementById('ms-song-ov-name');
-  var a = document.getElementById('ms-song-ov-artist');
-  if (n) n.textContent = song.name;
-  if (a) a.textContent = song.artist + ' · ' + cfg.bpmLabel;
-  document.getElementById('progress-fill').style.width = '0%';
-  var dot = document.getElementById('prog-dot');
-  if (dot) dot.style.left = '0%';
-  document.getElementById('prog-cur').textContent = '0:00';
-  document.getElementById('prog-total').textContent = formatTime(cfg.dur);
-  state.progressSec = 0;
-}
-
-function formatTime(sec) {
-  if (!sec || !isFinite(sec)) return '--:--';
-  var m = Math.floor(sec / 60);
-  var s = Math.floor(sec % 60);
-  return m + ':' + (s < 10 ? '0' : '') + s;
-}
-
-function setPlayState(playing) {
-  state.isPlaying = playing;
-  var btn = document.getElementById('play-btn');
-  if (btn) btn.textContent = playing ? '⏸' : '▶';
-}
-
-function togglePlay() {
-  if (state.isPlaying) {
-    stopTones();
-    setPlayState(false);
-  } else {
-    playTones(state.currentMode, state.currentSongIdx);
-    setPlayState(true);
-  }
-}
-
-function nextSong() {
-  state.currentSongIdx++;
-  currentTheme = (currentTheme + 1) % 4;
-  applyDesignBg();
-  loadSong();
-  if (state.isPlaying) { stopTones(); playTones(state.currentMode, state.currentSongIdx); setPlayState(true); }
-}
-function prevSong() {
-  state.currentSongIdx--;
-  if (state.currentSongIdx < 0) state.currentSongIdx = 0;
-  loadSong();
-  if (state.isPlaying) { stopTones(); playTones(state.currentMode, state.currentSongIdx); setPlayState(true); }
-}
-
-// 点击进度条热区跳转
-function seekByClick(e) {
-  var cfg = MODE_CFG[state.currentMode] || MODE_CFG.good;
-  var rect = e.currentTarget.getBoundingClientRect();
-  var pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-  var dur = cfg.dur;
-  var target = pct * dur;
-  if (fakePBar) clearInterval(fakePBar);
-  var startAt = Date.now() - target * 1000;
-  fakePBar = setInterval(function() {
-    var elapsed = (Date.now() - startAt) / 1000;
-    if (elapsed >= dur) { clearInterval(fakePBar); fakePBar = null; }
-    var ep = Math.min(100, (elapsed / dur) * 100);
-    var fill = document.getElementById('progress-fill');
-    if (fill) fill.style.width = ep + '%';
-    var dot = document.getElementById('prog-dot');
-    if (dot) dot.style.left = ep + '%';
-    var curEl = document.getElementById('prog-cur');
-    if (curEl) curEl.textContent = formatTime(Math.max(0, elapsed));
-    var totEl = document.getElementById('prog-total');
-    if (totEl) totEl.textContent = formatTime(dur);
-  }, 1000);
-  if (state.isPlaying) { stopTones(); playTones(state.currentMode, state.currentSongIdx); setPlayState(true); }
-}
-
 // 点击底部情绪标签切换设计稿——现在用7主题轮换
 // ===== 设计背景 + 主题栏系统 v7.1 =====
 // bg1~bg7 = 7张设计稿纯背景（无文字/控件）
@@ -1472,7 +1305,7 @@ function switchDesign(idx) {
 }
 
 function stopAllTones() {
-  stopTones();
+  stopRealMusic();
   state.isPlaying = false;
 }
 
@@ -1866,7 +1699,7 @@ function seekQQProgress(e) {
     document.getElementById('qq-time-cur').textContent = formatTime(Math.max(0,elapsed));
     document.getElementById('qq-time-total').textContent = formatTime(duration);
   }, 1000);
-  if (state.isPlaying) { stopTones(); playTones(state.currentMode, state.currentSongIdx); setPlayState(true); }
+  if (state.isPlaying) { stopRealMusic(); playRealMusic(state.currentMode, state.currentSongIdx); setPlayState(true); }
 }
 
 // ===== QQ音乐可视化（复用4场景系统）=====
