@@ -710,18 +710,8 @@ function playRealMusic(mode, songIdx) {
   var pendingSong = song; // 闭包保存
   var onCanPlay = function() {
     audio.removeEventListener('canplay', onCanPlay);
-    // 此时才更新歌曲名称，确保名称和音乐同步
-    state._songName = pendingSong.name;
-    state._songArtist = pendingSong.artist;
-    var n = document.getElementById('ms-song-ov-name');
-    var a = document.getElementById('ms-song-ov-artist');
-    if (n) n.textContent = pendingSong.name;
-    if (a) a.textContent = pendingSong.artist;
-    // 同步 QQ 音乐面板
-    var qn = document.getElementById('qq-song-name');
-    var qa = document.getElementById('qq-song-artist');
-    if (qn) qn.textContent = pendingSong.name;
-    if (qa) qa.textContent = pendingSong.artist;
+    // 音频就绪，统一更新名称并开始播放
+    updateSongDisplay(pendingSong);
     audio.play().then(function() {
       state.isPlaying = true;
       setPlayState(true);
@@ -733,16 +723,11 @@ function playRealMusic(mode, songIdx) {
   };
   audio.addEventListener('canplay', onCanPlay);
 
-  // 超时保护：5秒后如果还没 canplay，仍然更新名称
+  // 超时保护：5秒后如果还没 canplay，仍然更新名称并尝试播放
   setTimeout(function() {
     audio.removeEventListener('canplay', onCanPlay);
-    state._songName = pendingSong.name;
-    state._songArtist = pendingSong.artist;
-    var n = document.getElementById('ms-song-ov-name');
-    var a = document.getElementById('ms-song-ov-artist');
-    if (n && n.textContent !== pendingSong.name) {
-      n.textContent = pendingSong.name;
-      a.textContent = pendingSong.artist;
+    if (state._songName !== pendingSong.name) {
+      updateSongDisplay(pendingSong);
       audio.play().catch(function(){});
     }
   }, 5000);
@@ -762,16 +747,29 @@ function togglePlay() {
   }
 }
 
-// ===== 歌曲加载 / 切歌（真实音乐版）=====
-function loadSong() {
-  var list = songLibrary[state.currentMode] || songLibrary.good;
-  var song = list[state.currentSongIdx % list.length];
+// ===== 统一歌曲展示函数（单入口，保证名称-音乐一对一）=====
+function updateSongDisplay(song) {
+  if (!song) return;
+  // 记录当前播放歌曲
   state._songName = song.name;
   state._songArtist = song.artist;
+  // 更新手表播放器名称
   var n = document.getElementById('ms-song-ov-name');
   var a = document.getElementById('ms-song-ov-artist');
   if (n) n.textContent = song.name;
   if (a) a.textContent = song.artist;
+  // 同步 QQ 音乐面板名称
+  var qn = document.getElementById('qq-song-name');
+  var qa = document.getElementById('qq-song-artist');
+  if (qn) qn.textContent = song.name;
+  if (qa) qa.textContent = song.artist;
+}
+
+// ===== 歌曲加载 / 切歌（真实音乐版）=====
+function loadSong() {
+  var list = songLibrary[state.currentMode] || songLibrary.good;
+  var song = list[state.currentSongIdx % list.length];
+  updateSongDisplay(song);
   var fill = document.getElementById('progress-fill');
   if (fill) fill.style.width = '0%';
   var dot = document.getElementById('prog-dot');
@@ -1643,11 +1641,10 @@ function openQQMusic() {
   var bgEl = document.getElementById('qq-bg-layer');
   bgEl.style.backgroundImage = 'url(' + (bgMap[state.currentMode] || bgMap.good) + ')';
   setTimeout(function(){ bgEl.classList.add('show'); }, 40);
-  // 同步当前歌曲信息
+  // 同步当前歌曲信息（通过统一入口）
   var list = songLibrary[state.currentMode] || songLibrary.good;
   var song = list[state.currentSongIdx % list.length];
-  document.getElementById('qq-song-name').textContent = song.name;
-  document.getElementById('qq-song-artist').textContent = song.artist;
+  updateSongDisplay(song);
   // 同步播放状态和进度
   var disc = document.getElementById('qq-disc');
   var playBtn = document.getElementById('qq-play-btn');
@@ -1693,19 +1690,10 @@ function qqTogglePlay() {
 
 function qqNext() {
   nextSong();
-  syncQQSongInfo();
 }
 
 function qqPrev() {
   prevSong();
-  syncQQSongInfo();
-}
-
-function syncQQSongInfo() {
-  var list = songLibrary[state.currentMode] || songLibrary.good;
-  var song = list[state.currentSongIdx % list.length];
-  document.getElementById('qq-song-name').textContent = song.name;
-  document.getElementById('qq-song-artist').textContent = song.artist;
 }
 
 function seekQQProgress(e) {
@@ -2163,16 +2151,17 @@ loadSong();
 initViz();
 startVizLoop();
 
-// 心率目标变化（演示用）
+// 心率目标自动波动（演示用 —— 仅改变心率数值，不动歌曲）
 setTimeout(function changeHRTarget() {
-  var modes = ['good', 'high', 'low', 'good'];
-  var targets = [72, 105, 48, 72];
-  var idx = Math.floor(Math.random() * modes.length);
-  state.currentMode = modes[idx];
-  state.hrTarget = targets[idx];
-  state.currentSongIdx = 0;
-  loadSong();
-  updateMoodBar(modes[idx]);
+  // 仅在演示模式下（未手动触发过模拟）才微调心率
+  var targets = [72, 80, 68, 75, 70, 78, 65, 73];
+  state.hrTarget = targets[Math.floor(Math.random() * targets.length)];
+  // 根据目标心率更新情绪条颜色（不动模式，不动歌曲）
+  var mode = state.currentMode;
+  if (state.hrTarget > 90) mode = 'high';
+  else if (state.hrTarget < 55) mode = 'low';
+  else mode = 'good';
+  updateMoodBar(mode);
   setTimeout(changeHRTarget, 12000 + Math.random() * 8000);
 }, 5000);
 </script>
