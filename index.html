@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>心守 · HeartGuard v8.1</title>
+<title>心守 · HeartGuard v8.2</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   body {
@@ -584,70 +584,40 @@ var state = {
   vizStyle: 'heartscape'
 };
 
-// ===== 歌库 v8.1 —— 接入网易云真实音乐 =====
-// 每首歌带 neteaseId，通过 JSONP 获取真实播放地址
+// ===== 歌库 v8.2 —— 本地真实音乐 (B站爬虫下载) =====
 var songLibrary = {
   good: [
-    { name: '海阔天空',   artist: 'Beyond',     neteaseId: 346089 },
-    { name: '起风了',     artist: '买辣椒也用券', neteaseId: 1330348068 },
-    { name: '晴天',       artist: '周杰伦',     neteaseId: 65766 },
-    { name: '小幸运',     artist: '田馥甄',     neteaseId: 327541673 },
-    { name: '平凡之路',   artist: '朴树',       neteaseId: 139350 }
+    { name: '海阔天空',   artist: 'Beyond',     file: 'music/海阔天空.mp3' },
+    { name: '起风了',     artist: '买辣椒也用券', file: 'music/起风了.mp3' },
+    { name: '晴天',       artist: '周杰伦',     file: 'music/晴天.mp3' },
+    { name: '小幸运',     artist: '田馥甄',     file: 'music/小幸运.mp3' },
+    { name: '平凡之路',   artist: '朴树',       file: 'music/平凡之路.mp3' }
   ],
   high: [
-    { name: '蓝莲花',           artist: '许巍',       neteaseId: 16775 },
-    { name: '夜空中最亮的星',   artist: '逃跑计划',   neteaseId: 25713016 },
-    { name: '追梦赤子心',       artist: 'GALA',      neteaseId: 164835 },
-    { name: '怒放的生命',       artist: '汪峰',       neteaseId: 65767 },
-    { name: '曾经的你',         artist: '许巍',       neteaseId: 16776 }
+    { name: '蓝莲花',           artist: '许巍',       file: 'music/蓝莲花.mp3' },
+    { name: '夜空中最亮的星',   artist: '逃跑计划',   file: 'music/夜空中最亮的星.mp3' },
+    { name: '追梦赤子心',       artist: 'GALA',      file: 'music/追梦赤子心.mp3' },
+    { name: '怒放的生命',       artist: '汪峰',       file: 'music/怒放的生命.mp3' },
+    { name: '曾经的你',         artist: '许巍',       file: 'music/曾经的你.mp3' }
   ],
   low: [
-    { name: '南山南',           artist: '马頔',       neteaseId: 25704156 },
-    { name: '安河桥',           artist: '宋冬野',     neteaseId: 415350 },
-    { name: '成都',             artist: '赵雷',       neteaseId: 436514312 },
-    { name: '七月上',           artist: 'Jam',        neteaseId: 31445554 },
-    { name: '鲸鱼',             artist: '窦唯',       neteaseId: 186001 }
+    { name: '南山南',           artist: '马頔',       file: 'music/南山南.mp3' },
+    { name: '安河桥',           artist: '宋冬野',     file: 'music/安河桥.mp3' },
+    { name: '成都',             artist: '赵雷',       file: 'music/成都.mp3' },
+    { name: '七月上',           artist: 'Jam',        file: 'music/七月上.mp3' },
+    { name: '理想三旬',         artist: '陈鸿宇',     file: 'music/理想三旬.mp3' }
   ],
   crisis: [
-    { name: '海阔天空',         artist: 'Beyond',     neteaseId: 346089 },
-    { name: '平凡之路',         artist: '朴树',       neteaseId: 139350 },
-    { name: '夜空中最亮的星',   artist: '逃跑计划',   neteaseId: 25713016 },
-    { name: '隐形的翅膀',       artist: '张韶涵',     neteaseId: 108580 },
-    { name: '勇敢一点',         artist: '赵雷',       neteaseId: 436514366 }
+    { name: '海阔天空',         artist: 'Beyond',     file: 'music/海阔天空.mp3' },
+    { name: '平凡之路',         artist: '朴树',       file: 'music/平凡之路.mp3' },
+    { name: '夜空中最亮的星',   artist: '逃跑计划',   file: 'music/夜空中最亮的星.mp3' },
+    { name: '隐形的翅膀',       artist: '张韶涵',     file: 'music/隐形的翅膀.mp3' },
+    { name: '勇敢一点',         artist: '赵传',       file: 'music/勇敢一点.mp3' }
   ]
 };
 
-// ===== 网易云音乐播放器 v8.1 =====
-// 用 JSONP 绕过 CORS，获取真实 MP3 地址并播放
-var neAudio = null;        // <audio> 元素
-var neAudioURL = '';    // 当前音频 URL
-var neFetching = false;  // 是否正在获取 URL
-
-// JSONP 回调容器
-var _neCallbacks = {};
-var _neCbId = 0;
-
-function neFetchUrl(songId, callback) {
-  // 用 JSONP 调用网易云 API，绕过 CORS
-  var cbName = '_neCb' + (++_neCbId);
-  _neCallbacks[cbName] = function(json) {
-    delete _neCallbacks[cbName];
-    var url = json && json.data && json.data[0] && json.data[0].url;
-    callback(url || null);
-  };
-  // 构建 JSONP URL
-  var url = 'https://music.163.com/api/song/enhance/player/url?id='
-            + songId + '&ids=%5B' + songId + '%5D&br=320000'
-            + '&callback=' + cbName;
-  var script = document.createElement('script');
-  script.src = url;
-  script.onload = function() { document.body.removeChild(script); };
-  script.onerror = function() {
-    document.body.removeChild(script);
-    callback(null);
-  };
-  document.body.appendChild(script);
-}
+// ===== 本地音乐播放器 v8.2 =====
+var neAudio = null;
 
 function ensureAudio() {
   if (!neAudio) {
@@ -693,7 +663,7 @@ function stopRealMusic() {
   setPlayState(false);
 }
 
-// 播放指定歌曲（通过网易云 API 获取真实 MP3）
+// 播放指定歌曲（本地 MP3 文件）
 function playRealMusic(mode, songIdx) {
   stopRealMusic();
   var list = songLibrary[mode] || songLibrary.good;
@@ -707,34 +677,22 @@ function playRealMusic(mode, songIdx) {
   if (n) n.textContent = song.name;
   if (a) a.textContent = song.artist;
 
-  if (!song.neteaseId) {
-    console.warn('[HeartGuard] 歌曲无 neteaseId:', song.name);
+  if (!song.file) {
+    console.warn('[HeartGuard] 歌曲无文件路径:', song.name);
     return;
   }
 
-  // 获取真实播放地址
-  neFetching = true;
-  setPlayState(true); // 先显示"加载中"
-
-  neFetchUrl(song.neteaseId, function(mp3url) {
-    neFetching = false;
-    if (!mp3url) {
-      console.warn('[HeartGuard] 无法获取播放地址:', song.name);
-      setPlayState(false);
-      // 自动重试下一首
-      setTimeout(function(){ nextSong(); }, 800);
-      return;
-    }
-    var audio = ensureAudio();
-    audio.src = mp3url;
-    audio.load();
-    audio.play().then(function() {
-      state.isPlaying = true;
-      setPlayState(true);
-    }).catch(function(err) {
-      console.warn('[HeartGuard] 播放失败:', err);
-      setPlayState(false);
-    });
+  // 直接加载本地 MP3 播放
+  setPlayState(true);
+  var audio = ensureAudio();
+  audio.src = song.file;
+  audio.load();
+  audio.play().then(function() {
+    state.isPlaying = true;
+    setPlayState(true);
+  }).catch(function(err) {
+    console.warn('[HeartGuard] 播放失败:', err);
+    setPlayState(false);
   });
 }
 
