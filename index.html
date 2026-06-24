@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>心守 · HeartGuard v8.2</title>
+<title>心守 · HeartGuard v8.3</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   body {
@@ -630,9 +630,18 @@ function ensureAudio() {
   return neAudio;
 }
 
+// 时间格式化：秒 → m:ss
+function formatTime(sec) {
+  if (!sec || isNaN(sec)) return '0:00';
+  var m = Math.floor(sec / 60);
+  var s = Math.floor(sec % 60);
+  return m + ':' + (s < 10 ? '0' : '') + s;
+}
+
 function onAudioTimeUpdate() {
   if (!neAudio) return;
   var pct = neAudio.duration ? (neAudio.currentTime / neAudio.duration) * 100 : 0;
+  // 手表进度条
   var fill = document.getElementById('progress-fill');
   if (fill) fill.style.width = pct + '%';
   var dot = document.getElementById('prog-dot');
@@ -641,6 +650,13 @@ function onAudioTimeUpdate() {
   if (curEl) curEl.textContent = formatTime(neAudio.currentTime);
   var totEl = document.getElementById('prog-total');
   if (totEl && neAudio.duration) totEl.textContent = formatTime(neAudio.duration);
+  // QQ音乐面板进度条同步
+  var qqFill = document.getElementById('qq-progress-fill');
+  if (qqFill) qqFill.style.width = pct + '%';
+  var qqCur = document.getElementById('qq-time-cur');
+  if (qqCur) qqCur.textContent = formatTime(neAudio.currentTime);
+  var qqTot = document.getElementById('qq-time-total');
+  if (qqTot && neAudio.duration) qqTot.textContent = formatTime(neAudio.duration);
 }
 
 function onAudioEnded() {
@@ -648,8 +664,17 @@ function onAudioEnded() {
   setTimeout(function(){ nextSong(); }, 500);
 }
 
+var _audioErrorCount = 0;
+
 function onAudioError() {
-  console.warn('[HeartGuard] 音频加载失败，尝试下一首');
+  _audioErrorCount++;
+  if (_audioErrorCount > 5) {
+    console.warn('[HeartGuard] 多次音频加载失败，停止重试');
+    setPlayState(false);
+    _audioErrorCount = 0;
+    return;
+  }
+  console.warn('[HeartGuard] 音频加载失败，尝试下一首 (' + _audioErrorCount + '/5)');
   setTimeout(function(){ nextSong(); }, 1000);
 }
 
@@ -682,14 +707,15 @@ function playRealMusic(mode, songIdx) {
     return;
   }
 
-  // 直接加载本地 MP3 播放
+  // 直接加载本地 MP3 播放（encodeURI 防止中文文件名编码问题）
   setPlayState(true);
   var audio = ensureAudio();
-  audio.src = song.file;
+  audio.src = encodeURI(song.file);
   audio.load();
   audio.play().then(function() {
     state.isPlaying = true;
     setPlayState(true);
+    _audioErrorCount = 0; // 播放成功，重置错误计数
   }).catch(function(err) {
     console.warn('[HeartGuard] 播放失败:', err);
     setPlayState(false);
@@ -1578,6 +1604,7 @@ function drawViz() {} // 音乐屏改用设计稿背景，不再需要 canvas �
 // ===== QQ音乐 H5 播放器 =====
 var qqVizCanvas, qqVizCtx, qqVizFrameId;
 var qqBTConnected = false;
+var fakePBar = null;
 
 function openQQMusic() {
   document.getElementById('qq-music-overlay').classList.add('show');
@@ -1591,7 +1618,7 @@ function openQQMusic() {
   var song = list[state.currentSongIdx % list.length];
   document.getElementById('qq-song-name').textContent = song.name;
   document.getElementById('qq-song-artist').textContent = song.artist;
-  // 同步播放状态
+  // 同步播放状态和进度
   var disc = document.getElementById('qq-disc');
   var playBtn = document.getElementById('qq-play-btn');
   if (state.isPlaying) {
@@ -1600,6 +1627,17 @@ function openQQMusic() {
   } else {
     disc.classList.remove('playing');
     playBtn.textContent = '▶';
+  }
+  // 同步进度条
+  if (neAudio && neAudio.duration) {
+    var pct = (neAudio.currentTime / neAudio.duration) * 100;
+    document.getElementById('qq-progress-fill').style.width = pct + '%';
+    document.getElementById('qq-time-cur').textContent = formatTime(neAudio.currentTime);
+    document.getElementById('qq-time-total').textContent = formatTime(neAudio.duration);
+  } else {
+    document.getElementById('qq-progress-fill').style.width = '0%';
+    document.getElementById('qq-time-cur').textContent = '0:00';
+    document.getElementById('qq-time-total').textContent = '0:00';
   }
   startQQVizLoop();
 }
@@ -1641,23 +1679,15 @@ function syncQQSongInfo() {
 }
 
 function seekQQProgress(e) {
-  // 使用假进度系统
+  // 使用真实音频进度
+  if (!neAudio || !neAudio.duration) return;
   var bar = e.currentTarget;
   var rect = bar.getBoundingClientRect();
-  var pct = (e.clientX - rect.left) / rect.width;
-  if (fakePBar) clearInterval(fakePBar);
-  var duration = 300;
-  var target = pct * duration;
-  var startAt = Date.now() - target * 1000;
-  fakePBar = setInterval(function() {
-    var elapsed = (Date.now() - startAt) / 1000;
-    if (elapsed >= duration) { clearInterval(fakePBar); fakePBar=null; }
-    var ep = Math.min(100,(elapsed/duration)*100);
-    document.getElementById('qq-progress-fill').style.width = ep+'%';
-    document.getElementById('qq-time-cur').textContent = formatTime(Math.max(0,elapsed));
-    document.getElementById('qq-time-total').textContent = formatTime(duration);
-  }, 1000);
-  if (state.isPlaying) { stopRealMusic(); playRealMusic(state.currentMode, state.currentSongIdx); setPlayState(true); }
+  var pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+  neAudio.currentTime = pct * neAudio.duration;
+  document.getElementById('qq-progress-fill').style.width = (pct * 100) + '%';
+  document.getElementById('qq-time-cur').textContent = formatTime(neAudio.currentTime);
+  document.getElementById('qq-time-total').textContent = formatTime(neAudio.duration);
 }
 
 // ===== QQ音乐可视化（复用4场景系统）=====
@@ -2243,16 +2273,11 @@ buildThemeBar();
 applyDesignBg();
 </script>
 
-<!-- 全局错误捕获 -->
+<!-- 全局错误捕获（仅控制台记录，不显示在页面上） -->
 <script>
 window.onerror = function(msg, src, line, col, err) {
-  var d = document.getElementById('screen-home');
-  if (d) {
-    var e = document.createElement('div');
-    e.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:rgba(244,67,54,0.9);color:white;padding:8px;font-size:10px;z-index:9999;word-break:break-all;';
-    e.textContent = 'JS错误: ' + (msg || '') + ' (行:' + (line || '') + ')';
-    document.body.appendChild(e);
-  }
+  console.warn('[HeartGuard] JS提示:', msg, '(行:' + line + ')');
+  return true; // 阻止默认错误输出
 };
 </script>
 
