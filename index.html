@@ -601,7 +601,6 @@ var songLibrary = {
     { name: '曾经的你',         artist: '许巍',       file: 'music/曾经的你.mp3' }
   ],
   low: [
-    { name: '南山南',           artist: '马頔',       file: 'music/南山南.mp3' },
     { name: '安河桥',           artist: '宋冬野',     file: 'music/安河桥.mp3' },
     { name: '成都',             artist: '赵雷',       file: 'music/成都.mp3' },
     { name: '七月上',           artist: 'Jam',        file: 'music/七月上.mp3' },
@@ -756,25 +755,29 @@ function loadSong() {
 }
 
 function nextSong() {
+  var wasPlaying = state.isPlaying;
+  stopRealMusic();              // 先停旧音乐，再改名
   state.currentSongIdx++;
   currentTheme = (currentTheme + 1) % 4;
   applyDesignBg();
-  loadSong();
-  if (state.isPlaying) {
-    stopRealMusic();
-    playRealMusic(state.currentMode, state.currentSongIdx);
+  if (wasPlaying) {
+    playRealMusic(state.currentMode, state.currentSongIdx);  // 播放时：playRealMusic 内部更新名称+播放
+  } else {
+    loadSong();                 // 不播放时：只更新显示
   }
 }
 
 function prevSong() {
+  var wasPlaying = state.isPlaying;
+  stopRealMusic();              // 先停旧音乐，再改名
   state.currentSongIdx--;
   if (state.currentSongIdx < 0) state.currentSongIdx = 0;
   currentTheme = (currentTheme + 3) % 4;
   applyDesignBg();
-  loadSong();
-  if (state.isPlaying) {
-    stopRealMusic();
+  if (wasPlaying) {
     playRealMusic(state.currentMode, state.currentSongIdx);
+  } else {
+    loadSong();
   }
 }
 
