@@ -695,30 +695,57 @@ function playRealMusic(mode, songIdx) {
   var song = list[idx];
   state.currentSongIdx = idx;
 
-  // 更新 UI 歌曲信息
-  var n = document.getElementById('ms-song-ov-name');
-  var a = document.getElementById('ms-song-ov-artist');
-  if (n) n.textContent = song.name;
-  if (a) a.textContent = song.artist;
-
   if (!song.file) {
     console.warn('[HeartGuard] 歌曲无文件路径:', song.name);
     return;
   }
 
-  // 直接加载本地 MP3 播放（encodeURI 防止中文文件名编码问题）
+  // 先加载新音频，等真正开始播放后再更新歌曲名称
   setPlayState(true);
   var audio = ensureAudio();
   audio.src = encodeURI(song.file);
   audio.load();
-  audio.play().then(function() {
-    state.isPlaying = true;
-    setPlayState(true);
-    _audioErrorCount = 0; // 播放成功，重置错误计数
-  }).catch(function(err) {
-    console.warn('[HeartGuard] 播放失败:', err);
-    setPlayState(false);
-  });
+
+  // 监听 canplay 事件 —— 音频就绪后再更新名称并播放
+  var pendingSong = song; // 闭包保存
+  var onCanPlay = function() {
+    audio.removeEventListener('canplay', onCanPlay);
+    // 此时才更新歌曲名称，确保名称和音乐同步
+    state._songName = pendingSong.name;
+    state._songArtist = pendingSong.artist;
+    var n = document.getElementById('ms-song-ov-name');
+    var a = document.getElementById('ms-song-ov-artist');
+    if (n) n.textContent = pendingSong.name;
+    if (a) a.textContent = pendingSong.artist;
+    // 同步 QQ 音乐面板
+    var qn = document.getElementById('qq-song-name');
+    var qa = document.getElementById('qq-song-artist');
+    if (qn) qn.textContent = pendingSong.name;
+    if (qa) qa.textContent = pendingSong.artist;
+    audio.play().then(function() {
+      state.isPlaying = true;
+      setPlayState(true);
+      _audioErrorCount = 0;
+    }).catch(function(err) {
+      console.warn('[HeartGuard] 播放失败:', err);
+      setPlayState(false);
+    });
+  };
+  audio.addEventListener('canplay', onCanPlay);
+
+  // 超时保护：5秒后如果还没 canplay，仍然更新名称
+  setTimeout(function() {
+    audio.removeEventListener('canplay', onCanPlay);
+    state._songName = pendingSong.name;
+    state._songArtist = pendingSong.artist;
+    var n = document.getElementById('ms-song-ov-name');
+    var a = document.getElementById('ms-song-ov-artist');
+    if (n && n.textContent !== pendingSong.name) {
+      n.textContent = pendingSong.name;
+      a.textContent = pendingSong.artist;
+      audio.play().catch(function(){});
+    }
+  }, 5000);
 }
 
 function setPlayState(playing) {
